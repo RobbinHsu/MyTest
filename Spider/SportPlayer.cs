@@ -1,7 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Net;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
@@ -12,77 +11,95 @@ namespace Spider
     {
         private readonly string[] _letters = new string[]
         {
-            "a", "b", "c", "d", "e", "f", "g", "h", "letter", "j", "k", "l", "m", "n", "o", "p", "q", "r", "s", "t",
+            "a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o", "p", "q", "r", "s", "t",
             "u",
             "v", "w", "x", "y", "z"
         };
 
-        private TaskFactory _factory;
         private StringBuilder _answer;
-        private List<Task> _taskList;
         private string _ans;
         private Match _nameSite;
         private string _baller;
         private string _ballerRecord;
+        private List<string> _letterPages;
+        private string[] _letterRows;
+        private List<string> _playerName;
+        private Dictionary<string, string> _ballerRecords;
+
+        public GetGamePlayer()
+        {
+            _letterPages = new List<string>();
+            _playerName = new List<string>();
+            _ballerRecords = new Dictionary<string, string>();
+        }
 
         private const string Url = @"https://www.basketball-reference.com/players/";
-        private const string FilePate = @"C:\Answer\";
         private const string Title = "Player,G,PTS,TRB,AST,FG(%),FG3(%),FT(%),eFG(%),PER,WS";
 
         public void GetLetter()
         {
             foreach (var letter in _letters)
             {
-                var letterPage = GetHtmlByURL(Url + letter + "/"); // 個別字母球員列表頁面
+                var letterPage = (Url + letter + "/").GetHtmlByURL(); // 個別字母球員列表頁面
                 if (string.IsNullOrEmpty(letterPage))
                 {
                     continue;
                 }
 
-                _answer = new StringBuilder();
-                _answer.AppendLine(Title);
-                var letterRows = Regex.Split(letterPage, @"<tr ><th");
+                _letterPages.Add(letterPage);
+            }
 
-                for (int i = 1; i < letterRows.Length; i++)
+            foreach (var letterPage in _letterPages)
+            {
+                _letterRows = Regex.Split(letterPage, @"<tr ><th");
+
+                foreach (var letterRow in _letterRows)
                 {
-                    var letterRow = letterRows[i];
-                    if (IsLetterNotNull(letterRow, letter))
+                    _nameSite = Regex.Match(letterRow,
+                        @"<a href=""/players/\w/(?<name>[^.]*).html"">(?<baller>[^<]*)<");
+
+                    var baller = _nameSite.Groups["baller"].Value;
+                    var name = _nameSite.Groups["name"].Value;
+                    if (string.IsNullOrEmpty(name) || string.IsNullOrEmpty(baller))
                     {
                         continue;
                     }
 
-                    GetLetterPlayer(_answer);
+                    _playerName.Add(name);
+                }
+            }
+
+            foreach (var name in _playerName)
+            {
+                var letter = name.Substring(0, 1);
+                _ballerRecord =
+                    (Url + letter + "/" + name + ".html").GetHtmlByURL();
+                if (string.IsNullOrEmpty(_ballerRecord))
+                {
+                    continue;
                 }
 
-                File.WriteAllText(letter + ".csv", _answer.ToString());
-                Console.WriteLine($"{letter.ToUpper()} is OK");
+                _ballerRecords.Add(name, _ballerRecord);
+            }
+
+            foreach (var ballerRecord in _ballerRecords)
+            {
+                _answer = new StringBuilder();
+                _answer.AppendLine(Title);
+                _letterRows = Regex.Split(ballerRecord.Value, @"<tr ><th");
+
+                var letterRow = _letterRows[0];
+                GetLetterPlayer(letterRow);
+                File.WriteAllText(ballerRecord.Key + ".csv", _answer.ToString());
+                Console.WriteLine($"{ballerRecord.Key.ToUpper()} is OK");
             }
         }
 
-        private string GetHtmlByURL(string url)
+        private void GetLetterPlayer(string ballerRecord)
         {
-            var html = string.Empty;
-            try
-            {
-                var request = WebRequest.Create(url);
-                var response = request.GetResponse();
-                var stream = new StreamReader(response.GetResponseStream());
-                html = Nancy.Helpers.HttpUtility.HtmlDecode(stream.ReadToEnd());
-                response.Close();
-                stream.Close();
-            }
-            catch (Exception)
-            {
-                Console.WriteLine($"{url} is failed.");
-            }
-
-            return html;
-        }
-
-        private void GetLetterPlayer(StringBuilder answer)
-        {
+            _answer.Clear();
             var values =
-                Regex.Matches(_ballerRecord, @"<p>(?<valueOne>[^<]*)</p>\n<p>(?<valueTwo>[^<]*)</p>"); // 擷取個人數據
+                Regex.Matches(ballerRecord, @"<p>(?<valueOne>[^<]*)</p>\n<p>(?<valueTwo>[^<]*)</p>"); // 擷取個人數據
 
             string dataOne = "";
             string dataTwo = "";
@@ -98,17 +115,17 @@ namespace Spider
 
             if (dataOne.Length > 10) // 判斷個人數據是否為兩行
             {
-                answer.AppendLine(_ans + dataOne + "\n" + " " + dataTwo); // 加入兩行個人數據
+                _answer.AppendLine(_ans + dataOne + "\n" + " " + dataTwo); // 加入兩行個人數據
             }
             else
             {
-                answer.AppendLine(_ans + dataTwo);
+                _answer.AppendLine(_ans + dataTwo);
             }
 
             Console.WriteLine($"{_baller} is join");
         }
 
-        private bool IsLetterNotNull(string letterRow, string letter)
+        private bool IsLetterNotNull(string letterRow, string letterPage)
         {
             _nameSite = Regex.Match(letterRow, @"<a href=""/players/\w/(?<name>[^.]*).html"">(?<baller>[^<]*)<");
 
@@ -119,7 +136,7 @@ namespace Spider
                 return true;
             }
 
-            _ballerRecord = GetHtmlByURL(Url + letter + "/" + _nameSite.Groups["name"].Value + ".html");
+            _ballerRecord = (Url + letterPage + "/" + _nameSite.Groups["name"].Value + ".html").GetHtmlByURL();
             if (string.IsNullOrEmpty(_ballerRecord))
             {
                 return true;
